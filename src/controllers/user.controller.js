@@ -1,34 +1,70 @@
 import User from "../models/user.model.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import transporter from "../config/nodemailer.js";
 
 
 // Create new user
 export const createUser = async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
+
         const existingUser = await User.findOne({ email });
 
         if (existingUser) {
-            return res.status(400).json({ message: "User already exists" });
+            return res.status(400).json({
+                success: false,
+                message: "User already exists"
+            });
         }
+
+        // Hash Password
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Generate OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+        const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
         const user = new User({
             name,
             email,
-            password,
-            role
+            password: hashedPassword,
+            role,
+            otp,
+            expiresAt: otpExpiresAt,
+            isVerified: false
         });
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        user.password = hashedPassword;
         await user.save();
 
-        res.status(201).json({ message: "User created successfully", user });
+        // Send Email
+        await transporter.sendMail({
+            from: process.env.SMTP_USER,
+            to: email,
+            subject: "Verify Your Email",
+            text: `Hello ${name},
+
+Your OTP is: ${otp}
+
+This OTP is valid for 10 minutes.
+
+Thank you.`
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: "User registered successfully. OTP has been sent to your email."
+        });
+
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
+
 
 // Login user
 export const loginUser = async (req, res) => {
@@ -54,6 +90,44 @@ export const loginUser = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+//verify OTP
+export const verifyOTP = async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        if (user.otp !== otp) {
+            return res.status(400).json({ message: "Invalid OTP" });
+        }
+        if (Date.now() > user.expiresAt) {
+            return res.status(400).json({ message: "OTP has expired" });
+        }
+        user.otpVerified = true;
+        await user.save();
+        res.status(200).json({ message: "OTP verified successfully" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+
+
+//logout user
+export const logoutUser = (req, res) => {
+    try {
+        res.status(200).json({ message: "Logout successful" });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
 
 
 
@@ -373,3 +447,6 @@ export const deleteUser = async (req, res) => {
         });
     }
 };
+
+
+
