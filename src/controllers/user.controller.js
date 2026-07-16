@@ -275,12 +275,101 @@ export const updateUser = async (req, res) => {
 // Delete user
 export const deleteUser = async (req, res) => {
     try {
-        const user = await User.findByIdAndDelete(req.params.id);
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
+        const loggedInUser = req.user;
+        const targetUser = await User.findById(req.params.id);
+
+        if (!targetUser) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
         }
-        res.status(200).json({ message: "User deleted successfully" });
+        // Nobody can delete Super Admin
+        if (targetUser.role === "superadmin") {
+            return res.status(403).json({
+                success: false,
+                message: "Super Admin cannot be deleted."
+            });
+        }
+
+        
+        // SUPER ADMIN
+        // Can delete Admin & User
+        if (loggedInUser.role === "superadmin") {
+
+            await User.findByIdAndDelete(targetUser._id);
+
+            return res.status(200).json({
+                success: true,
+                message: "User deleted successfully."
+            });
+        }
+
+
+        // ADMIN
+        // Can delete only Users
+          if (loggedInUser.role === "admin") {
+
+        // Admin deleting themselves
+        if (loggedInUser._id.toString() === targetUser._id.toString()) {
+            await User.findByIdAndDelete(targetUser._id);
+
+            return res.status(200).json({
+                success: true,
+                message: "Your account has been deleted successfully."
+            });
+        }
+
+        // Admin cannot delete another Admin
+        if (targetUser.role === "admin") {
+            return res.status(403).json({
+                success: false,
+                message: "Admin cannot delete another Admin."
+            });
+        }
+
+        // Admin can delete normal users
+        await User.findByIdAndDelete(targetUser._id);
+
+        return res.status(200).json({
+            success: true,
+            message: "User deleted successfully."
+        });
+    }
+
+        // USER
+        // Can delete only themselves
+        if (loggedInUser.role === "user") {
+
+    // Support both `id` and `_id` from JWT/auth middleware
+    const loggedInUserId = loggedInUser._id || loggedInUser.id;
+
+    if (!loggedInUserId) {
+        return res.status(401).json({
+            success: false,
+            message: "Invalid authentication token."
+        });
+    }
+
+    if (loggedInUserId.toString() !== targetUser._id.toString()) {
+        return res.status(403).json({
+            success: false,
+            message: "You can only delete your own account."
+        });
+    }
+
+    await User.findByIdAndDelete(targetUser._id);
+
+    return res.status(200).json({
+        success: true,
+        message: "Your account has been deleted successfully."
+    });
+}
+
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 };
